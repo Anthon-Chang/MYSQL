@@ -1,0 +1,229 @@
+create database repaso;
+use repaso;
+
+-- Creación de la tabla Categorias
+CREATE TABLE Categorias (
+    CategoriaID INT AUTO_INCREMENT PRIMARY KEY,
+    Descripcion VARCHAR(100) NOT NULL
+);
+
+-- Insertar registros de ejemplo en Categorias
+INSERT INTO Categorias (Descripcion) VALUES
+('Electrónica'),
+('Hogar'),
+('Ropa'),
+('Alimentos');
+
+-- Creación de la tabla Productos
+CREATE TABLE Productos (
+    ProductoID INT AUTO_INCREMENT PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL,
+    Precio DECIMAL(10, 2) NOT NULL,
+    CategoriaID INT,
+    FOREIGN KEY (CategoriaID) REFERENCES Categorias(CategoriaID)
+);
+
+-- Insertar registros de ejemplo en Productos
+INSERT INTO Productos (Nombre, Precio, CategoriaID) VALUES
+('Televisor', 2500.00, 1),
+('Sofá', 1500.00, 2),
+('Camiseta', 25.00, 3),
+('Leche', 2.50, 4);
+
+-- Creación de la tabla Clientes
+CREATE TABLE Clientes (
+    ClienteID INT AUTO_INCREMENT PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL,
+    Apellidos VARCHAR(100) NOT NULL,
+    FechaNacimiento DATE NOT NULL,
+    Telefono VARCHAR(15),
+    Correo VARCHAR(100)
+);
+
+-- Insertar registros de ejemplo en Clientes
+INSERT INTO Clientes (Nombre, Apellidos, FechaNacimiento, Telefono, Correo) VALUES
+('Juan', 'Pérez', '1985-02-15', '555123456', 'juan.perez@mail.com'),
+('Ana', 'Gómez', '1990-06-25', '555654321', 'ana.gomez@mail.com'),
+('Carlos', 'Lopez', '1982-11-12', '555987654', 'carlos.lopez@mail.com');
+
+-- Creación de la tabla Ordenes
+CREATE TABLE Ordenes (
+    OrdenID INT AUTO_INCREMENT PRIMARY KEY,
+    ClienteID INT,
+    FechaOrden DATE NOT NULL,
+    MontoTotal DECIMAL(10, 2),
+    FOREIGN KEY (ClienteID) REFERENCES Clientes(ClienteID)
+);
+
+-- Insertar registros de ejemplo en Ordenes
+INSERT INTO Ordenes (ClienteID, FechaOrden, MontoTotal) VALUES
+(1, '2024-12-01', 2550.00),
+(2, '2024-12-05', 1525.00),
+(3, '2024-12-10', 27.50);
+
+-- Creación de la tabla DetallesOrden
+CREATE TABLE DetallesOrden (
+    DetalleID INT AUTO_INCREMENT PRIMARY KEY,
+    OrdenID INT,
+    ProductoID INT,
+    Cantidad INT,
+    PrecioUnitario DECIMAL(10, 2),
+    FOREIGN KEY (OrdenID) REFERENCES Ordenes(OrdenID),
+    FOREIGN KEY (ProductoID) REFERENCES Productos(ProductoID)
+);
+
+-- Insertar registros de ejemplo en DetallesOrden
+INSERT INTO DetallesOrden (OrdenID, ProductoID, Cantidad, PrecioUnitario) VALUES
+(1, 1, 1, 2500.00),
+(1, 2, 1, 50.00),
+(2, 3, 2, 25.00),
+(3, 4, 5, 2.50);
+
+-- Creación de la tabla AuditoriaEliminaciones
+CREATE TABLE AuditoriaEliminaciones (
+    ProductoID INT,
+    Nombre VARCHAR(100),
+    Precio DECIMAL(10, 2),
+    FechaEliminacion DATETIME
+);
+
+-- Creación de la tabla AuditoriaPrecios
+CREATE TABLE AuditoriaPrecios (
+    ProductoID INT,
+    PrecioAnterior DECIMAL(10, 2),
+    PrecioNuevo DECIMAL(10, 2),
+    FechaCambio DATETIME
+);
+
+-- FUNCION PARA CALCULAR EL TOTAL DE UNA ORDEN
+delimiter //
+create function total_orden(ordenid int)
+returns decimal(10, 2)
+deterministic
+begin
+    declare total decimal(10, 2);
+    select sum(preciounitario * cantidad)
+    into total
+    from detallesorden
+    where ordenid = ordenid;
+    return total;
+end //
+delimiter ;
+
+select total_orden(1) as TotalOrden;
+
+-- procedimiento para insertar un cliente
+delimiter //
+create procedure insertar_cliente(
+    in nombre varchar(100),
+    in apellidos varchar(100),
+    in fechanacimiento date,
+    in telefono varchar(15),
+    in correo varchar(100)
+)
+begin
+    insert into clientes (nombre, apellidos, fechanacimiento, telefono, correo)
+    values (nombre, apellidos, fechanacimiento, telefono, correo);
+    select concat('cliente ', nombre, ' ', apellidos, ' registrado exitosamente.') as mensaje;
+end //
+delimiter ;
+
+-- Llamar al procedimiento para insertar un nuevo cliente
+call insertar_cliente('María', 'Ramírez', '1995-04-18', '555112233', 'maria.ramirez@mail.com');
+
+-- trigger para auditar eliminaciones
+delimiter //
+create trigger eliminaciones
+after delete on productos
+for each row
+begin
+    insert into eliminaciones (productoid, nombre, precio, fechaeliminacion)
+    values (old.productoid, old.nombre, old.precio, now());
+end //
+delimiter ;
+
+delete from detallesorden where productoid = 1;
+
+-- creación de un usuario con privilegios específicos
+create user 'usuario_cliente'@'%' identified by 'contraseñasegura';
+grant select on repaso.clientes to 'usuario_cliente'@'%';
+grant select on repaso.productos to 'usuario_cliente'@'%';
+grant select on repaso.ordenes to 'usuario_cliente'@'%';
+
+-- procedimiento para actualizar el precio de un producto
+delimiter //
+create procedure actualizar_precio(
+    in productoid int,
+    in precionuevo decimal(10, 2)
+)
+begin
+    declare precioanterior decimal(10, 2);
+    select precio into precioanterior from productos where productoid = productoid;
+    update productos set precio = precionuevo where productoid = productoid;
+    insert into auditoriaprecios (productoid, precioanterior, precionuevo, fechacambio)
+    values (productoid, precioanterior, precionuevo, now());
+end //
+delimiter ;
+
+call actualizar_precio(2, 1600.00);
+
+-- función para obtener el total gastado por un cliente
+delimiter //
+create function total_cliente(clienteid int)
+returns decimal(10, 2)
+deterministic
+begin
+    declare totalgastado decimal(10, 2);
+    select sum(montototal)
+    into totalgastado
+    from ordenes
+    where clienteid = clienteid;
+    return totalgastado;
+end //
+delimiter ;
+
+select total_cliente(1) as TotalGastado;
+
+-- trigger para actualizar el stock de productos
+ALTER TABLE Productos ADD COLUMN Stock INT DEFAULT 100;
+delimiter //
+create trigger actualizar_stock
+after insert on detallesorden
+for each row
+begin
+    declare nuevostock int;
+    select stock into nuevostock from productos where productoid = new.productoid;
+    if nuevostock - new.cantidad < 0 then
+        signal sqlstate '45000'
+        set message_text = 'stock insuficiente para realizar esta operación.';
+    else
+        update productos set stock = stock - new.cantidad where productoid = new.productoid;
+    end if;
+end //
+delimiter ;
+
+insert into detallesorden (ordenid, productoid, cantidad, preciounitario)
+values (2, 3, 1, 25.00);
+
+-- procedimiento para generar un informe de ventas por categoría
+delimiter //
+create procedure informe_ventas(in categoriaid int)
+begin
+    select 
+        c.descripcion as categoria,
+        p.nombre as producto,
+        sum(do.cantidad) as cantidadvendida,
+        sum(do.cantidad * do.preciounitario) as totalventas
+    from productos p
+    join detallesorden do on p.productoid = do.productoid
+    join categorias c on p.categoriaid = c.categoriaid
+    where c.categoriaid = categoriaid
+    group by p.nombre, c.descripcion;
+end //
+delimiter ;
+
+call informe_ventas(2);
+
+-- creación de un usuario administrador con privilegios completos
+create user 'admin_ventas'@'%' identified by 'contraseñasegura';
+grant all privileges on repaso.* to 'admin_ventas'@'%';
